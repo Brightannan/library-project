@@ -49,21 +49,32 @@ def create_app(env=None):
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # Create tables and default admin
+    # Create tables and default admin — retry loop handles slow cloud DB startup
+    import time
     with app.app_context():
-        db.create_all()
-        admin = User.query.filter_by(username='admin').first()
-        if not admin:
-            admin = User(
-                username='admin',
-                email='admin@school.edu',
-                full_name='System Administrator',
-                role='admin'
-            )
-            admin.set_password('admin123')
-            db.session.add(admin)
-            db.session.commit()
-            print("✓ Default admin created  |  user: admin  |  pass: admin123")
+        for attempt in range(10):
+            try:
+                db.create_all()
+                admin = User.query.filter_by(username='admin').first()
+                if not admin:
+                    admin = User(
+                        username='admin',
+                        email='admin@school.edu',
+                        full_name='System Administrator',
+                        role='admin'
+                    )
+                    admin.set_password('admin123')
+                    db.session.add(admin)
+                    db.session.commit()
+                    print("✓ Default admin created  |  user: admin  |  pass: admin123")
+                break  # success — exit retry loop
+            except Exception as e:
+                if attempt < 9:
+                    print(f"DB not ready (attempt {attempt+1}/10), retrying in 3s… ({e})")
+                    time.sleep(3)
+                else:
+                    print(f"ERROR: Could not connect to database after 10 attempts: {e}")
+                    raise
 
     # Register all routes (passing mail and db references)
     _register_routes(app, db, mail_instance, User, Book, BookBorrowing, Log)
